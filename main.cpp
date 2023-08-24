@@ -82,15 +82,15 @@ static void event_handler(struct mg_connection *c, int ev, void *ev_data, void *
 
 void cleanup()
 {
-   for (int loop = 0; loop < g_Displays.size(); loop++) {
-      if (g_Displays[loop].pTexture)
-         SDL_DestroyTexture(g_Displays[loop].pTexture);  
+   for (auto &display : g_Displays) {
+      if (display.pTexture)
+         SDL_DestroyTexture(display.pTexture);  
    
-      if (g_Displays[loop].pRenderer)
-         SDL_DestroyRenderer(g_Displays[loop].pRenderer);
+      if (display.pRenderer)
+         SDL_DestroyRenderer(display.pRenderer);
    
-      if (g_Displays[loop].pRenderer)
-         SDL_DestroyWindow(g_Displays[loop].pWindow);
+      if (display.pRenderer)
+         SDL_DestroyWindow(display.pWindow);
    }
 
    SDL_Quit();
@@ -180,9 +180,12 @@ int main(int argc, char* argv[])
 
       string szWindowName = "vpxds" + std::to_string(loop + 1);
 
-      PLOGI.printf("Creating window %s, x=%d, y=%d, width=%d, height=%d", szWindowName.c_str(), displayX, displayY, displayWidth, displayHeight);
+      PLOGI.printf("Creating window %s, x=%d, y=%d, width=%d, height=%d", 
+         szWindowName.c_str(), displayX, displayY, displayWidth, displayHeight);
 
-      SDL_Window* pWindow = SDL_CreateWindow(szWindowName.c_str(), displayX, displayY, displayWidth, displayHeight, SDL_WINDOW_BORDERLESS | SDL_WINDOW_SHOWN);
+      SDL_Window* pWindow = SDL_CreateWindow(szWindowName.c_str(), 
+         displayX, displayY, displayWidth, displayHeight, 
+         SDL_WINDOW_SKIP_TASKBAR | SDL_WINDOW_BORDERLESS | SDL_WINDOW_SHOWN);
 
       if (!pWindow) {
          PLOGE << "SDL_CreateWindow Error: " << SDL_GetError();
@@ -222,7 +225,7 @@ int main(int argc, char* argv[])
    struct mg_connection* conn;
    mg_mgr_init(&mgr);
 
-   mg_http_listen(&mgr, "http://127.0.0.1:8111", event_handler, NULL);
+   mg_http_listen(&mgr, "http://0.0.0.0:8111", event_handler, NULL);
   
    bool quit = false;
 
@@ -233,15 +236,37 @@ int main(int argc, char* argv[])
             quit = true;
       }
 
-      for (int loop = 0; loop < g_Displays.size(); loop++) {
-         SDL_SetRenderDrawColor(g_Displays[loop].pRenderer, 0, 0, 0, 255);
-         SDL_RenderClear(g_Displays[loop].pRenderer);
-         
-         if (g_Displays[loop].pTexture) {
-            SDL_Rect dest_rect = { 0, 0, 0, 0 };
-            SDL_QueryTexture(g_Displays[loop].pTexture, NULL, NULL, &dest_rect.w, &dest_rect.h);
-            SDL_RenderCopy(g_Displays[loop].pRenderer, g_Displays[loop].pTexture, NULL, NULL);
-            SDL_RenderPresent(g_Displays[loop].pRenderer);
+      for (auto &display : g_Displays) {
+         SDL_SetRenderDrawColor(display.pRenderer, 0, 0, 0, 255);
+         SDL_RenderClear(display.pRenderer);
+    
+         if (display.pTexture) {
+            int textureWidth;
+            int textureHeight;
+            SDL_QueryTexture(display.pTexture, NULL, NULL, &textureWidth, &textureHeight);
+
+            float aspectRatio = (float)textureWidth / textureHeight;
+
+            int destWidth;
+            int destHeight;
+            if (display.width / aspectRatio < display.height) {
+               destWidth = display.width;
+               destHeight = display.width / aspectRatio;
+            }
+            else {
+               destWidth = display.height * aspectRatio;
+               destHeight = display.height;
+            }
+
+            SDL_Rect dest_rect = {
+               .x = (display.width - destWidth) / 2,
+               .y = (display.height - destHeight) / 2,
+               .w = destWidth,
+               .h = destHeight
+            };
+
+            SDL_RenderCopy(display.pRenderer, display.pTexture, NULL, &dest_rect);
+            SDL_RenderPresent(display.pRenderer);
          }
       }
 
