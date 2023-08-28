@@ -14,7 +14,7 @@ case "$1" in
 
         cd /userdata/system/configs/vpinball
 
-        vpxds &
+        vpxds > /dev/null 2>&1 &
 
         ;;
 esac

@@ -47,7 +47,7 @@ display2_height=768
 
 When a game is selected in EmulationStation it executes `game-selected` scripts.
 
-I have custom scripts [here](https://github.com/jsm174/vpxds/blob/master/scripts/batocera/emulationstation/scripts/game-selected/game-selected.sh) and [here](https://github.com/jsm174/vpxds/blob/master/scripts/batocera/vpinball/game-selected.sh) that send messages to the `vpxds` app and changes the backglass and dmd images if they exist:
+I have a custom `game-selected.sh` script [here](https://github.com/jsm174/vpxds/blob/master/scripts/batocera/emulationstation/scripts/game-selected/game-selected.sh) that send messages to the `vpxds` app and changes the backglass and dmd images if they exist:
 
 ```bash
 curl -S "http://127.0.0.1:8111/update?display=1&image=/userdata/roms/vpinball/<table>-backglass.png" > /dev/null 2>&1
@@ -55,3 +55,7 @@ curl -S "http://127.0.0.1:8111/update?display=2&image=/userdata/roms/vpinball/<t
 ```
 
 For more information on custom EmulationStation scripts, refer to this [wiki](https://wiki.batocera.org/launch_a_script#emulationstation_scripting).
+
+## Shoutouts
+
+All the great people at the Batocera team, especially @dmanlfc and @maximumentropy!
