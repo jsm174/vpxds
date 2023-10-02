@@ -19,20 +19,6 @@ urlencode() {
   echo "${encoded}"
 }
 
-for ext in "png" "jpg" "jpeg"; do
-   path="${Gamepath%.*}-backglass.${ext}"
-   if [ -f "${path}" ]; then
-      image=$(urlencode "${path}")
-      curl -S "http://127.0.0.1:8111/update?display=1&image=${image}" > /dev/null 2>&1
-      break
-   fi
-done
+vpx=$(urlencode "${Gamepath}")
 
-for ext in "png" "jpg" "jpeg"; do
-   path="${Gamepath%.*}-dmd.${ext}"
-   if [ -f "${path}" ]; then
-      image=$(urlencode "${path}")
-      curl -S "http://127.0.0.1:8111/update?display=1&image=${image}" > /dev/null 2>&1
-      break
-   fi
-done
+curl -S "http://127.0.0.1:8111/b2s?vpx=${vpx}" > /dev/null 2>&1

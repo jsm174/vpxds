@@ -25,33 +25,43 @@ Next, the [custom.sh](https://github.com/jsm174/vpxds/blob/master/scripts/batoce
    xrandr --output DP-5 --auto --right-of DP-2 --auto  # enable dmd screen
 ```
 
-After the screens are enabled, the `vpxds` app is launched which creates two SDL windows, one for the backglass and one for the dmd. 
+After the desktop has been extended and the screens are enabled, the `vpxds` app is launched which creates windows for the backglass and dmd.
 
-The positioning of these screens are controlled by `vpxds.ini`:
+The settings for these windows, such as enabling and positioning, are controlled by `vpxds.ini`:
 
 ```ini
-[settings]
-
-displays=2
-
-display1_x=1080
-display1_y=0
-display1_width=1024
-display1_height=768
-
-display2_x=2104
-display2_y=0
-display2_width=1360
-display2_height=768
+[Settings]
+Backglass=1
+BackglassX=1080
+BackglassY=0
+BackglassWidth=1024
+BackglassHeight=768
+DMD=1
+DMDX=2104
+DMDY=0
+DMDWidth=1360
+DMDHeight=768
+CachePath=/userdata/roms/vpinball/backglasses
 ```
+
 
 When a game is selected in EmulationStation it executes `game-selected` scripts.
 
-I have a custom `game-selected.sh` script [here](https://github.com/jsm174/vpxds/blob/master/scripts/batocera/emulationstation/scripts/game-selected/game-selected.sh) that send messages to the `vpxds` app and changes the backglass and dmd images if they exist:
+I have custom `game-selected.sh` scripts [here](https://github.com/jsm174/vpxds/blob/master/scripts/batocera/emulationstation/scripts/game-selected) that send messages to the `vpxds` app and changes the backglass and dmd images if they exist.
+
+If you are using `directb2s` files, you can use the `b2s` command:
 
 ```bash
-curl -S "http://127.0.0.1:8111/update?display=1&image=/userdata/roms/vpinball/<table>-backglass.png" > /dev/null 2>&1
-curl -S "http://127.0.0.1:8111/update?display=2&image=/userdata/roms/vpinball/<table>-dmd.png" > /dev/null 2>&1
+curl -S "http://127.0.0.1:8111/b2s?vpx=/userdata/roms/vpinball/<table>.vpx" > /dev/null 2>&1
+```
+
+This opens the `directb2s` file, fetches the backglass image, and saves it to the `CachePath` path specified in `vpxds.ini`.
+
+If you want to use your own custom images, you can use the `update` command:
+
+```bash
+curl -S "http://127.0.0.1:8111/update?display=backglass&image=/userdata/roms/vpinball/<table>-backglass.png" > /dev/null 2>&1
+curl -S "http://127.0.0.1:8111/update?display=dmd&image=/userdata/roms/vpinball/<table>-dmd.png" > /dev/null 2>&1
 ```
 
 For more information on custom EmulationStation scripts, refer to this [wiki](https://wiki.batocera.org/launch_a_script#emulationstation_scripting).

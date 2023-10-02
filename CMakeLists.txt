@@ -16,7 +16,12 @@ link_directories(${SDL2_LIBRARY_DIRS} ${SDL2_IMAGE_LIBRARY_DIRS})
 
 add_executable(vpxds
    main.cpp
+   VPXDisplayServer.h
+   VPXDisplayServer.cpp
    inc/mongoose/mongoose.c
+   inc/mongoose/mongoose.h
+   inc/tinyxml2/tinyxml2.cpp
+   inc/tinyxml2/tinyxml2.h
 )
 
 target_link_libraries(vpxds ${SDL2_LIBRARIES} ${SDL2_IMAGE_LIBRARIES} ${X11_LIBRARIES}) 
