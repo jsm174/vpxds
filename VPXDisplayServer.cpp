@@ -192,27 +192,8 @@ void VPXDisplayServer::RenderDisplay(VPXDisplay* pDisplay)
    SDL_SetRenderDrawColor(pDisplay->pRenderer, 0, 0, 0, 255);
    SDL_RenderClear(pDisplay->pRenderer);
     
-   if (pDisplay->pTexture) {
-      int textureWidth;
-      int textureHeight;
-      SDL_QueryTexture(pDisplay->pTexture, NULL, NULL, &textureWidth, &textureHeight);
-
-      float aspectRatio = (float)textureWidth / textureHeight;
-
-      int destWidth;
-      int destHeight;
-      if (pDisplay->width / aspectRatio < pDisplay->height) {
-         destWidth = pDisplay->width;
-         destHeight = pDisplay->width / aspectRatio;
-      }
-      else {
-         destWidth = pDisplay->height * aspectRatio;
-         destHeight = pDisplay->height;
-      }
-
-      SDL_Rect destRect = { (pDisplay->width - destWidth) / 2, (pDisplay->height - destHeight) / 2, destWidth, destHeight };
-      SDL_RenderCopy(pDisplay->pRenderer, pDisplay->pTexture, NULL, &destRect);
-   }
+   if (pDisplay->pTexture)
+      SDL_RenderCopy(pDisplay->pRenderer, pDisplay->pTexture, NULL, NULL);
 
    SDL_RenderPresent(pDisplay->pRenderer);
 }
@@ -376,12 +357,8 @@ SDL_Surface* VPXDisplayServer::GetB2SImage(const string& szVpx)
 
       auto topnode = b2sTree.FirstChildElement("DirectB2SData");
 
-      int grillHeight = std::max(topnode->FirstChildElement("GrillHeight")->IntAttribute("Value"), 0);
-      int smallGrillHeight = 0;
+      int backglassGrillHeight = std::max(topnode->FirstChildElement("GrillHeight")->IntAttribute("Value"), 0);
 
-      if (topnode->FirstChildElement("GrillHeight")->FindAttribute("Small") && grillHeight > 0)
-         smallGrillHeight = std::max(topnode->FirstChildElement("GrillHeight")->IntAttribute("Small"), 0);
-   
       if (topnode->FirstChildElement("Images")) {
          if (topnode->FirstChildElement("Images")->FirstChildElement("BackglassOffImage")) {
             pImage = Base64ToImage(topnode->FirstChildElement("Images")->FirstChildElement("BackglassOffImage")->Attribute("Value"));
@@ -395,6 +372,14 @@ SDL_Surface* VPXDisplayServer::GetB2SImage(const string& szVpx)
          else {
             if (topnode->FirstChildElement("Images")->FirstChildElement("BackglassImage"))
                pImage = Base64ToImage(topnode->FirstChildElement("Images")->FirstChildElement("BackglassImage")->Attribute("Value"));
+         }
+
+         if (pImage && backglassGrillHeight > 0) {
+            SDL_Surface* pResizedImage = ResizeImage(pImage, backglassGrillHeight);
+            if (pResizedImage) {
+                SDL_FreeSurface(pImage);
+                pImage = pResizedImage;
+            }
          }
       }
    }
@@ -463,4 +448,17 @@ vector<unsigned char> VPXDisplayServer::Base64Decode(const string &encoded_strin
    }
 
    return ret;
+}
+
+SDL_Surface* VPXDisplayServer::ResizeImage(SDL_Surface* pSourceImage, int grillheight)
+{
+   SDL_Surface* pImageWithoutGrill = SDL_CreateRGBSurface(0, pSourceImage->w, pSourceImage->h - grillheight, pSourceImage->format->BitsPerPixel,
+      pSourceImage->format->Rmask, pSourceImage->format->Gmask, pSourceImage->format->Bmask, pSourceImage->format->Amask);
+
+   if (!pImageWithoutGrill)
+      return NULL;
+
+   SDL_BlitSurface(pSourceImage, NULL, pImageWithoutGrill, NULL);
+
+   return pImageWithoutGrill;
 }

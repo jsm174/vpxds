@@ -39,6 +39,7 @@ private:
    SDL_Surface* GetB2SImage(const string& filename);
    SDL_Surface* Base64ToImage(const string& image);
    vector<unsigned char> Base64Decode(const string &encoded_string);
+   SDL_Surface* ResizeImage(SDL_Surface* pSourceImage, int grillheight);
 
    VPXDisplay* m_pBackglassDisplay;
    VPXDisplay* m_pDMDDisplay;
