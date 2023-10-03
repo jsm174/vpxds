@@ -4,26 +4,29 @@
 #include "inc/mongoose/mongoose.h"
 #include "inc/mINI/ini.h"
 #include "inc/tinyxml2/tinyxml2.h"
-
 #include <iostream>
 #include <filesystem>
 #include <algorithm>
 #include <X11/Xlib.h>
 
-
 void VPXDisplayServer::EventHandler(struct mg_connection *c, int ev, void *ev_data, void *fn_data)
+{
+   static_cast<VPXDisplayServer*>(fn_data)->EventHandler(c, ev, ev_data);
+}
+
+void VPXDisplayServer::EventHandler(struct mg_connection *c, int ev, void *ev_data)
 {
    if (ev != MG_EV_HTTP_MSG)
       return;
 
-   VPXDisplayServer* pServer = static_cast<VPXDisplayServer*>(fn_data);
-
    struct mg_http_message *hm = (struct mg_http_message *) ev_data;
 
    if (mg_http_match_uri(hm, "/update"))
-      pServer->UpdateRequest(c, ev_data);
+      UpdateRequest(c, ev_data);
    else if (mg_http_match_uri(hm, "/b2s"))
-      pServer->B2SRequest(c, ev_data);
+      B2SRequest(c, ev_data);
+   else if (mg_http_match_uri(hm, "/reset"))
+      ResetRequest(c, ev_data);
    else {
       mg_http_reply(c, 200, "", "");
       return;
@@ -125,8 +128,12 @@ void VPXDisplayServer::B2SRequest(struct mg_connection *c, void *ev_data)
    if (!std::filesystem::exists(szCacheImagePath)) {
       pImage = GetB2SImage(string(szVpx));
       if (pImage) {
-         IMG_SavePNG(pImage, szCacheImagePath.c_str());
-         PLOGI.printf("Backglass image saved to %s", szCacheImagePath.c_str());
+        if (!IMG_SavePNG(pImage, szCacheImagePath.c_str())) {
+           PLOGI.printf("Backglass image saved to %s", szCacheImagePath.c_str());
+        }
+        else {
+           PLOGE.printf("Unable to saving backglass image to %s", szCacheImagePath.c_str());
+        }
       }
    }
    else {
@@ -143,6 +150,21 @@ void VPXDisplayServer::B2SRequest(struct mg_connection *c, void *ev_data)
 
    m_pBackglassDisplay->pTexture = SDL_CreateTextureFromSurface(m_pBackglassDisplay->pRenderer, pImage);
    SDL_FreeSurface(pImage);
+
+   mg_http_reply(c, 200, "", "");
+}
+
+void VPXDisplayServer::ResetRequest(struct mg_connection *c, void *ev_data)
+{
+   if (m_pBackglassDisplay && m_pBackglassDisplay->pTexture) {
+      SDL_DestroyTexture(m_pBackglassDisplay->pTexture);
+      m_pBackglassDisplay->pTexture = NULL;
+   }
+
+   if (m_pDMDDisplay && m_pDMDDisplay->pTexture) {
+      SDL_DestroyTexture(m_pBackglassDisplay->pTexture);
+      m_pBackglassDisplay->pTexture = NULL;
+   }
 
    mg_http_reply(c, 200, "", "");
 }

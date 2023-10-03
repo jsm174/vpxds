@@ -66,6 +66,12 @@ curl -S "http://127.0.0.1:8111/update?display=dmd&image=/userdata/roms/vpinball/
 
 For more information on custom EmulationStation scripts, refer to this [wiki](https://wiki.batocera.org/launch_a_script#emulationstation_scripting).
 
+If you would like to clear the backglass and dmd windows, you can use the `reset` command:
+
+```bash
+curl -S "http://127.0.0.1:8111/reset" > /dev/null 2>&1
+```
+
 ## Shoutouts
 
 All the great people at the Batocera team, especially @dmanlfc and @maximumentropy!
