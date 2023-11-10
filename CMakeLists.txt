@@ -4,6 +4,8 @@ project(vpxds)
 
 set(CMAKE_CXX_STANDARD 20)
 
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+
 find_package(PkgConfig REQUIRED)
 find_package(X11 REQUIRED)
 
@@ -20,8 +22,11 @@ add_executable(vpxds
    VPXDisplayServer.cpp
    inc/mongoose/mongoose.c
    inc/mongoose/mongoose.h
-   inc/tinyxml2/tinyxml2.cpp
-   inc/tinyxml2/tinyxml2.h
 )
 
-target_link_libraries(vpxds ${SDL2_LIBRARIES} ${SDL2_IMAGE_LIBRARIES} ${X11_LIBRARIES}) 
+target_link_libraries(vpxds ${SDL2_LIBRARIES} ${SDL2_IMAGE_LIBRARIES} ${X11_LIBRARIES})
+
+
+add_custom_command(TARGET vpxds POST_BUILD
+   COMMAND "${CMAKE_COMMAND}" -E copy_directory "${CMAKE_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:vpxds>/assets"
+)

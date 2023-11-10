@@ -21,4 +21,4 @@ urlencode() {
 
 vpx=$(urlencode "${Gamepath}")
 
-curl -S "http://127.0.0.1:8111/b2s?vpx=${vpx}" > /dev/null 2>&1
+curl -S "http://127.0.0.1:8111/update?display=backglass&path=${vpx}" > /dev/null 2>&1

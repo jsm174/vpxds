@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>VPX Display Server</title>
+    <style>
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        font-family: Arial, sans-serif;
+      }
+      .container {
+        height: 80%;
+      }
+      ul {
+        list-style-type: none;
+        padding: 0;
+        width: 50%;
+      }
+      li {
+        margin-bottom: 5px;
+        display: grid;
+        grid-template-columns: auto 500px;
+        grid-gap: 10px;
+        align-items: center;
+      }
+      li.row:hover {
+        background-color: #f5f5f5;
+      }
+      li a {
+        text-decoration: none;
+        color: #007bff;
+      }
+      li.header a {
+        color: #000000;
+        font-weight: bold;
+      }
+      span.action-icon {
+        height: 1em;
+        width: 1em;
+        background-repeat: no-repeat;
+        background-position: center;
+        display: inline-block;
+        margin: 0 5px;
+      }
+      span.action-label {
+        margin: 0 10px;
+      }
+      .action-icon {
+        cursor: pointer;
+      }
+      .play-icon {
+        background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Pro 6.4.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2023 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg>');
+      }
+      .edit-icon {
+        background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Pro 6.4.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2023 Fonticons, Inc. --><path d="M362.7 19.3L314.3 67.7 444.3 197.7l48.4-48.4c25-25 25-65.5 0-90.5L453.3 19.3c-25-25-65.5-25-90.5 0zm-71 71L58.6 323.5c-10.4 10.4-18 23.3-22.2 37.4L1 481.2C-1.5 489.7 .8 498.8 7 505s15.3 8.5 23.7 6.1l120.3-35.4c14.1-4.2 27-11.8 37.4-22.2L421.7 220.3 291.7 90.3z"/></svg>');
+      }
+      .download-icon {
+        background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Pro 6.4.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2023 Fonticons, Inc. --><path d="M288 32c0-17.7-14.3-32-32-32s-32 14.3-32 32V274.7l-73.4-73.4c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3l128 128c12.5 12.5 32.8 12.5 45.3 0l128-128c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0L288 274.7V32zM64 352c-35.3 0-64 28.7-64 64v32c0 35.3 28.7 64 64 64H448c35.3 0 64-28.7 64-64V416c0-35.3-28.7-64-64-64H346.5l-45.3 45.3c-25 25-65.5 25-90.5 0L165.5 352H64zm368 56a24 24 0 1 1 0 48 24 24 0 1 1 0-48z"/></svg>');
+      }
+      .upload-icon {
+        background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Pro 6.4.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license (Commercial License) Copyright 2023 Fonticons, Inc. --><path d="M288 109.3V352c0 17.7-14.3 32-32 32s-32-14.3-32-32V109.3l-73.4 73.4c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3l128-128c12.5-12.5 32.8-12.5 45.3 0l128 128c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L288 109.3zM64 352H192c0 35.3 28.7 64 64 64s64-28.7 64-64H448c35.3 0 64 28.7 64 64v32c0 35.3-28.7 64-64 64H64c-35.3 0-64-28.7-64-64V416c0-35.3 28.7-64 64-64zM432 456a24 24 0 1 0 0-48 24 24 0 1 0 0 48z"/></svg>');
+      }
+      #editor {
+        display: none;
+      }
+      #editor-content {
+        height: 90%;
+        width: 90%;
+      }
+      #es-image {
+        max-width: 100px;
+        padding: 10px 0;
+      }
+    </style>
+  </head>
+  <body ondragover="event.preventDefault()">
+    <div id="main" class="container">
+      <h1>VPX Display Server</h1>
+      <p>
+        <button onclick="reloadGames()">Reload Games</button>
+        <button onclick="capture('backglass')">Capture Backglass</button>
+        <button onclick="capture('dmd')">Capture DMD</button>
+        <button onclick="captureEs('image')">Capture Image</button>
+        <button onclick="captureEs('video')">Capture Video</button>
+        <button onclick="stopVpx()">Stop VPX</button>
+      </p>
+      <p><b>Status</b>: <span id="main-status"></span></p>
+      <p><b>ES Status</b>: <span id="es-status">Loading...</span></p>
+      <img id="es-image" src="" alt="ES Image" style="display: none" />
+      <button onclick="loadEsImage()">Load Image</button>
+      <ul id="table-list-header">
+        <li class="header">
+          <a href="#" onclick="toggleSort('name')">Name</a>
+          <span></span>
+        </li>
+      </ul>
+      <ul id="table-list"></ul>
+    </div>
+    <div id="editor" class="container">
+      <h1>VPX Display Server</h1>
+      <h4 id="editor-path"></h4>
+      <p>
+        <button id="save-button">Save</button>
+        <button onclick="closeEditor()">Close</button> <span id="editor-status"></span>
+      </p>
+      <textarea id="editor-content"></textarea>
+    </div>
+    <script>
+      var _timeoutId;
+      var _tables;
+      var _currentTable;
+      var _lastSort = "name";
+      var _sortOrders = {
+        name: "asc",
+      };
+
+      function setStatus(status) {
+        clearTimeout(_timeoutId);
+        document.getElementById("main-status").innerText = status ? status : "Idle";
+
+        timeoutId = setTimeout(() => {
+          document.getElementById("main-status").innerText = "Idle";
+        }, 5000);
+      }
+
+      function uploadBlob(url, blob) {
+        setStatus("Uploading...");
+        fetch(url, {
+          method: "POST",
+          body: blob,
+          headers: {
+            "Content-Type": blob.type,
+          },
+        })
+          .then((postResponse) => {
+            if (!postResponse.ok) {
+              setStatus("Error");
+            }
+            return postResponse.text();
+          })
+          .then((result) => {
+            setStatus("Success");
+          })
+          .catch((postError) => {
+            setStatus("Error");
+          });
+      }
+
+      function fetchRunning() {
+        if (_tables) {
+          fetch("/es/runningGame")
+            .then((response) => response.json())
+            .then((data) => {
+              if (data.msg) {
+                _currentTable = null;
+                document.getElementById("es-status").innerText = "Idle";
+              } else if (data.id) {
+                let game = _tables.find((game) => game.id === data.id);
+                if (game) {
+                  _currentTable = game;
+                  document.getElementById("es-status").innerText = `${game.name} is running`;
+                } else {
+                  document.getElementById("es-status").innerText = "Error";
+                  _currentTable = null;
+                }
+              }
+            })
+            .catch((error) => {
+              setStatus("Error");
+            });
+        }
+        setTimeout(fetchRunning, 3000);
+      }
+
+      function fetchTables() {
+        _tables = null;
+        refreshTableList();
+        setStatus("Loading...");
+        fetch(`es/systems/vpinball/games`)
+          .then((response) => response.json())
+          .then((data) => {
+            setStatus();
+            _tables = data;
+            sortTables(_lastSort);
+          })
+          .catch((error) => {
+            setStatus("Error");
+          });
+      }
+
+      function reloadGames() {
+        _tables = null;
+        refreshTableList();
+        setStatus("Reloading...");
+        fetch(`es/reloadgames`)
+          .then(() => {
+            setTimeout(() => {
+              fetchTables();
+            }, 3000);
+          })
+          .catch((error) => {
+            fetchTables();
+          });
+      }
+
+      function capture(display) {
+        if (_currentTable) {
+          setStatus("Capturing...");
+          fetch(`capture?display=${display}&path=${encodeURIComponent(_currentTable.path)}`)
+            .then((response) => {
+              if (!response.ok) {
+                throw new Error();
+              }
+              setStatus("Success");
+            })
+            .catch((error) => {
+              setStatus("Error");
+            });
+        } else {
+          alert("No table running");
+        }
+      }
+
+      function captureEs(type) {
+        if (_currentTable) {
+          setStatus("Capturing...");
+          fetch(`capture-es?type=${type}`)
+            .then((response) => {
+              if (!response.ok) {
+                throw new Error();
+              }
+              return response.blob();
+            })
+            .then((data) => {
+              uploadBlob(`es/systems/vpinball/games/${_currentTable.id}/media/${type}`, data);
+            })
+            .catch((error) => {
+              setStatus("Error");
+            });
+        } else {
+          alert("No table running");
+        }
+      }
+
+      function downloadEs(type, id) {
+        fetch(`es/systems/vpinball/games/${id}/media/${type}`)
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error();
+            }
+            return response.blob();
+          })
+          .then((blob) => {
+            const blobType = blob.type;
+            let extension = '';
+            switch (blobType) {
+              case 'image/jpeg':
+                extension = '.jpg';
+                break;
+              case 'image/png':
+                extension = '.png';
+                break;
+              case 'video/mp4':
+                extension = '.mp4';
+                break;
+              default:
+                if (type == 'video') {
+                  extension = '.mp4';
+                }
+                else {
+                  extension = '';
+                }
+                break;
+            }
+            const downloadName = `${id}-${type}${extension}`;
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = downloadName;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+              document.body.removeChild(a);
+              window.URL.revokeObjectURL(url);
+            }, 100);
+          })
+          .catch((error) => {});
+      }
+
+      function uploadEs(type, id) {
+        const fileInput = document.createElement("input");
+        fileInput.type = "file";
+
+        fileInput.addEventListener("change", () => {
+          var file = fileInput.files[0];
+          var reader = new FileReader();
+          reader.readAsArrayBuffer(file);
+          reader.onload = function () {
+            const data = new Uint8Array(reader.result);
+            const blob = new Blob([data], { type: file.type });
+            uploadBlob(`es/systems/vpinball/games/${id}/media/${type}`, blob);
+          };
+        });
+
+        fileInput.click();
+      }
+
+      function stopVpx() {
+        if (_currentTable) {
+          setStatus("Stopping...");
+          fetch(`es/emukill`, { method: "GET" }).catch((error) => console.error("Error:", error));
+        } else {
+          alert("No table running");
+        }
+      }
+
+      function loadEsImage() {
+        fetch(`capture-es?type=image`)
+          .then((response) => {
+            if (!response.ok) {
+              throw new Error();
+            }
+            return response.blob();
+          })
+          .then((blob) => {
+            const img = document.getElementById("es-image");
+            img.src = URL.createObjectURL(blob);
+            img.style.display = "block";
+          })
+          .catch((error) => {});
+      }
+
+      function startVpx(id) {
+        if (_currentTable) {
+          alert("A table is already running");
+        } else {
+          let game = _tables.find((game) => game.id === id);
+          if (game) {
+            setStatus("Launching...");
+            fetch(`es/launch`, { method: "POST", body: game.path }).catch((error) => console.error("Error:", error));
+          }
+        }
+      }
+
+      function refreshTableList() {
+        document.getElementById("table-list").innerHTML = "";
+        if (_tables) {
+          _tables.forEach((game) => {
+            var listItem = `<li class="row">`;
+            listItem += `${game.name}`;
+            var actionsSpan = `<span class="actions">`;
+            actionsSpan += `<span class="action-icon play-icon" onclick="startVpx('${game.id}')"></span>`;
+            actionsSpan += `<span class="action-icon edit-icon" onclick="editTable('${game.id}')"></span>`;
+            actionsSpan += `<span class="action-label">Wheel:</span><span class="action-icon download-icon" onclick="downloadEs('marquee', '${game.id}')"></span><span class="action-icon upload-icon" onclick="uploadEs('marquee', '${game.id}')"></span>`;
+            actionsSpan += `<span class="action-label">Image:</span><span class="action-icon download-icon" onclick="downloadEs('image', '${game.id}')"></span><span class="action-icon upload-icon" onclick="uploadEs('image', '${game.id}')"></span>`;
+            actionsSpan += `<span class="action-label">Video:</span><span class="action-icon download-icon" onclick="downloadEs('video', '${game.id}')"></span><span class="action-icon upload-icon" onclick="uploadEs('video', '${game.id}')"></span>`;
+            actionsSpan += "</span>";
+            listItem += actionsSpan;
+            listItem += `</li>`;
+            document.getElementById("table-list").innerHTML += listItem;
+          });
+        }
+      }
+
+      function toggleSort(column) {
+        if (_sortOrders[column] === "asc") {
+          _sortOrders[column] = "desc";
+        } else {
+          _sortOrders[column] = "asc";
+        }
+
+        sortTables(column);
+      }
+      function sortTables(column) {
+        _tables.sort((a, b) => {
+          if (column === "name") {
+            let nameA = a.name.toLowerCase().startsWith("the ") ? a.name.substring(4) : a.name;
+            let nameB = b.name.toLowerCase().startsWith("the ") ? b.name.substring(4) : b.name;
+
+            if (_sortOrders[column] === "asc") {
+              return nameA.localeCompare(nameB);
+            } else {
+              return nameB.localeCompare(nameA);
+            }
+          }
+        });
+        _lastSort = column;
+        refreshTableList();
+      }
+
+      function editTable(id) {
+        let game = _tables.find((game) => game.id === id);
+        if (game) {
+          document.getElementById("editor-path").innerHTML = `Editing ${game.name}`;
+          document.getElementById("save-button").onclick = function () {
+            fetch(`es/systems/vpinball/games/${id}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: document.getElementById("editor-content").value,
+            })
+              .then((response) => {
+                closeEditor();
+                fetchTables();
+              })
+              .catch((error) => {
+                document.getElementById("editor-status").innerHTML = "Error";
+              });
+          };
+          document.getElementById("editor-content").value = JSON.stringify(game, null, 2);
+          document.getElementById("main").style.display = "none";
+          document.getElementById("editor").style.display = "block";
+        }
+      }
+
+      function closeEditor() {
+        document.getElementById("main").style.display = "block";
+        document.getElementById("editor").style.display = "none";
+      }
+
+      function startup() {
+        fetchTables();
+        fetchRunning();
+      }
+
+      startup();
+    </script>
+  </body>
+</html>

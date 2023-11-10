@@ -23,8 +23,9 @@ public:
    VPXDisplayServer();
    ~VPXDisplayServer();
 
-   static void EventHandler(struct mg_connection *c, int ev, void *ev_data, void *fn_data);
-   void EventHandler(struct mg_connection *c, int ev, void *ev_data);
+   static void Forward(struct mg_http_message *hm, struct mg_connection *c);
+   static void HandleEvent(struct mg_connection *c, int ev, void *ev_data, void *fn_data);
+   static void HandleEvent2(struct mg_connection *c, int ev, void *ev_data, void *fn_data);
 
    int Start();
    void SetBasePath(const string& path) { m_szBasePath = path; }
@@ -34,17 +35,18 @@ private:
    int OpenDisplay(const string& szName, VPXDisplay* pDisplay);
    void CloseDisplay(VPXDisplay* pDisplay);
    void RenderDisplay(VPXDisplay* pDisplay);
-   void UpdateRequest(struct mg_connection *c, void *ev_data);
-   void B2SRequest(struct mg_connection *c, void *ev_data);
-   void ResetRequest(struct mg_connection *c, void *ev_data);
-   SDL_Surface* GetB2SImage(const string& filename);
-   SDL_Surface* Base64ToImage(const string& image);
-   vector<unsigned char> Base64Decode(const string &encoded_string);
-   SDL_Surface* ResizeImage(SDL_Surface* pSourceImage, int grillheight);
+   void Update(struct mg_connection *c, void *ev_data);
+   void Reset(struct mg_connection *c, void *ev_data);
+   void Capture(struct mg_connection *c, void *ev_data);
+   void CaptureES(struct mg_connection *c, void *ev_data);
 
    VPXDisplay* m_pBackglassDisplay;
    VPXDisplay* m_pDMDDisplay;
 
    string m_szCachePath;
    string m_szBasePath;
+   string m_szESUrl;
+
+   int m_tableWidth;
+   int m_tableHeight;
 };

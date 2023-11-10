@@ -26,6 +26,7 @@ jobs:
           mkdir tmp
           cp build/vpxds tmp
           cp vpxds.ini tmp
+          cp -r assets tmp
           cp -r scripts/batocera tmp
       - uses: actions/upload-artifact@v3
         with:

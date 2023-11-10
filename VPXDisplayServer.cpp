@@ -1,36 +1,95 @@
 #include "VPXDisplayServer.h"
 
 #include <plog/Log.h>
+
 #include "inc/mongoose/mongoose.h"
 #include "inc/mINI/ini.h"
-#include "inc/tinyxml2/tinyxml2.h"
+#include "inc/subprocess/subprocess.h"
+
 #include <iostream>
 #include <filesystem>
 #include <algorithm>
 #include <X11/Xlib.h>
 
-void VPXDisplayServer::EventHandler(struct mg_connection *c, int ev, void *ev_data, void *fn_data)
+static VPXDisplayServer* g_pServer = NULL;
+
+void VPXDisplayServer::Forward(struct mg_http_message *hm, struct mg_connection *c)
 {
-   static_cast<VPXDisplayServer*>(fn_data)->EventHandler(c, ev, ev_data);
+   size_t i, max = sizeof(hm->headers) / sizeof(hm->headers[0]);
+   struct mg_str host = mg_url_host(g_pServer->m_szESUrl.c_str());
+
+   mg_printf(c, "%.*s ", (int) (hm->method.len), hm->method.ptr);
+
+   if (hm->uri.len > 0)
+      mg_printf(c, "%.*s ", (int) (hm->uri.len - 3), hm->uri.ptr + 3);
+
+   mg_printf(c, "%.*s\r\n", (int) (hm->proto.len), hm->proto.ptr);
+
+   for (i = 0; i < max && hm->headers[i].name.len > 0; i++) {
+     struct mg_str *k = &hm->headers[i].name, *v = &hm->headers[i].value;
+     if (mg_strcmp(*k, mg_str("Host")) == 0)
+        v = &host;
+
+     mg_printf(c, "%.*s: %.*s\r\n", (int) k->len, k->ptr, (int) v->len, v->ptr);
+   }
+   mg_send(c, "\r\n", 2);
+   mg_send(c, hm->body.ptr, hm->body.len);
 }
 
-void VPXDisplayServer::EventHandler(struct mg_connection *c, int ev, void *ev_data)
+void VPXDisplayServer::HandleEvent2(struct mg_connection *c, int ev, void *ev_data, void *fn_data)
 {
-   if (ev != MG_EV_HTTP_MSG)
-      return;
+  struct mg_connection *c2 = (struct mg_connection *) fn_data;
+  if (ev == MG_EV_READ) {
+    if (c2 != NULL)
+       mg_send(c2, c->recv.buf, c->recv.len);
+    mg_iobuf_del(&c->recv, 0, c->recv.len);
+  }
+  else if (ev == MG_EV_CLOSE) {
+    if (c2 != NULL)
+       c2->fn_data = NULL;
+  }
+  (void) ev_data;
+}
 
-   struct mg_http_message *hm = (struct mg_http_message *) ev_data;
+void VPXDisplayServer::HandleEvent(struct mg_connection *c, int ev, void *ev_data, void *fn_data)
+{
+  struct mg_connection *c2 = (struct mg_connection *)fn_data;
+  if (ev == MG_EV_HTTP_MSG) {
+    struct mg_http_message *hm = (struct mg_http_message *)ev_data;
+    if (mg_http_match_uri(hm, "/update"))
+       g_pServer->Update(c, ev_data);
+    else if (mg_http_match_uri(hm, "/reset"))
+       g_pServer->Reset(c, ev_data);
+    else if (mg_http_match_uri(hm, "/capture"))
+       g_pServer->Capture(c, ev_data);
+    else if (mg_http_match_uri(hm, "/capture-es"))
+       g_pServer->CaptureES(c, ev_data);
+    else if (!strncmp(hm->uri.ptr, "/es", 3)) {
+       c2 = mg_connect(c->mgr, g_pServer->m_szESUrl.c_str(), VPXDisplayServer::HandleEvent2, c);
+       if (c2) {
+          c->fn_data = c2;
+          Forward(hm, c2);
+          c->is_resp = 0;
+          c2->is_hexdumping = 0;
+       }
+       else {
+          mg_error(c, "Cannot create backend connection");
+       }
+    }
+    else {
+       string szHtmlFile = g_pServer->m_szBasePath + "assets/vpxds.html";
+       struct mg_http_serve_opts opts = {};
+       mg_http_serve_file(c, hm, szHtmlFile.c_str(), &opts);
+    }
 
-   if (mg_http_match_uri(hm, "/update"))
-      UpdateRequest(c, ev_data);
-   else if (mg_http_match_uri(hm, "/b2s"))
-      B2SRequest(c, ev_data);
-   else if (mg_http_match_uri(hm, "/reset"))
-      ResetRequest(c, ev_data);
-   else {
-      mg_http_reply(c, 200, "", "");
-      return;
-   }
+    return;
+  }
+  else if (ev == MG_EV_CLOSE) {
+    if (c2 != NULL) {
+       c2->is_closing = 1;
+       c2->fn_data = NULL;
+    }
+  }
 }
 
 VPXDisplayServer::VPXDisplayServer()
@@ -54,7 +113,7 @@ VPXDisplayServer::~VPXDisplayServer()
    SDL_Quit();
 }
 
-void VPXDisplayServer::UpdateRequest(struct mg_connection *c, void *ev_data)
+void VPXDisplayServer::Update(struct mg_connection *c, void *ev_data)
 {
    struct mg_http_message *hm = (struct mg_http_message *) ev_data;
 
@@ -74,17 +133,25 @@ void VPXDisplayServer::UpdateRequest(struct mg_connection *c, void *ev_data)
       return;
    }
 
+   char szPath[1024];
+   mg_http_get_var(&hm->query, "path", szPath, sizeof(szPath));
+
+   if (*szPath == '\0') {
+      mg_http_reply(c, 400, "", "Bad request");
+      return;
+   }
+
+   std::filesystem::path path = string(szPath);
+   string szImage = m_szCachePath + path.stem().string() + "-" + szDisplay + ".png";
+
    if (pDisplay->pTexture) {
       SDL_DestroyTexture(pDisplay->pTexture);
       pDisplay->pTexture = NULL;
    }
 
-   char szImage[1024];
-   mg_http_get_var(&hm->query, "image", szImage, sizeof(szImage));
-
-   SDL_Surface* pSurface = IMG_Load(szImage);
+   SDL_Surface* pSurface = IMG_Load(szImage.c_str());
    if (!pSurface) {
-      PLOGE.printf("Invalid image: %s", szImage);
+      PLOGE.printf("Invalid image: %s", szImage.c_str());
       mg_http_reply(c, 400, "", "Bad request");
       return;
    }
@@ -92,69 +159,11 @@ void VPXDisplayServer::UpdateRequest(struct mg_connection *c, void *ev_data)
    pDisplay->pTexture = SDL_CreateTextureFromSurface(pDisplay->pRenderer, pSurface);
    SDL_FreeSurface(pSurface);
 
-   PLOGI.printf("Display %s image set to %s", szDisplay, szImage);
-   mg_http_reply(c, 200, "", "display: %s, image: %s", szDisplay, szImage);
+   PLOGI.printf("Display %s image set to %s", szDisplay, szImage.c_str());
+   mg_http_reply(c, 200, "", "display: %s, image: %s", szDisplay, szImage.c_str());
 }
 
-void VPXDisplayServer::B2SRequest(struct mg_connection *c, void *ev_data)
-{
-   if (!m_pBackglassDisplay) {
-      mg_http_reply(c, 400, "", "No backglass display");
-      return;
-   }
-
-   if (m_pBackglassDisplay->pTexture) {
-      SDL_DestroyTexture(m_pBackglassDisplay->pTexture);
-      m_pBackglassDisplay->pTexture = NULL;
-   }
-
-   struct mg_http_message *hm = (struct mg_http_message *) ev_data;
-
-   char szVpx[1024];
-   mg_http_get_var(&hm->query, "vpx", szVpx, sizeof(szVpx));
-
-   if (!std::filesystem::exists(szVpx)) {
-      mg_http_reply(c, 400, "", "Bad request");
-      return;
-   }
-
-   SDL_Surface* pImage = NULL;
-
-   std::filesystem::path path(szVpx);
-   path.replace_extension(string(".png"));
-
-   string szCacheImagePath = m_szCachePath + path.filename().string();
-  
-   if (!std::filesystem::exists(szCacheImagePath)) {
-      pImage = GetB2SImage(string(szVpx));
-      if (pImage) {
-        if (!IMG_SavePNG(pImage, szCacheImagePath.c_str())) {
-           PLOGI.printf("Backglass image saved to %s", szCacheImagePath.c_str());
-        }
-        else {
-           PLOGE.printf("Unable to saving backglass image to %s", szCacheImagePath.c_str());
-        }
-      }
-   }
-   else {
-      pImage = IMG_Load(szCacheImagePath.c_str());
-      if (pImage) {
-         PLOGI.printf("Cached backglass image found at %s", szCacheImagePath.c_str());
-      }
-   }
-
-   if (!pImage) {
-      mg_http_reply(c, 400, "", "Bad request");
-      return;
-   }
-
-   m_pBackglassDisplay->pTexture = SDL_CreateTextureFromSurface(m_pBackglassDisplay->pRenderer, pImage);
-   SDL_FreeSurface(pImage);
-
-   mg_http_reply(c, 200, "", "");
-}
-
-void VPXDisplayServer::ResetRequest(struct mg_connection *c, void *ev_data)
+void VPXDisplayServer::Reset(struct mg_connection *c, void *ev_data)
 {
    if (m_pBackglassDisplay && m_pBackglassDisplay->pTexture) {
       SDL_DestroyTexture(m_pBackglassDisplay->pTexture);
@@ -167,6 +176,161 @@ void VPXDisplayServer::ResetRequest(struct mg_connection *c, void *ev_data)
    }
 
    mg_http_reply(c, 200, "", "");
+}
+
+void VPXDisplayServer::Capture(struct mg_connection *c, void *ev_data)
+{
+   struct mg_http_message *hm = (struct mg_http_message *) ev_data;
+
+   char szDisplay[10];
+   mg_http_get_var(&hm->query, "display", szDisplay, sizeof(szDisplay));
+
+   if (*szDisplay == '\0') {
+      mg_http_reply(c, 400, "", "Bad request");
+      return;
+   }
+
+   VPXDisplay* pDisplay = NULL;
+
+   if (!strncasecmp("backglass", szDisplay, 9))
+      pDisplay = m_pBackglassDisplay;
+   else if (!strncasecmp("dmd", szDisplay, 3))
+      pDisplay = m_pDMDDisplay;
+
+   if (!pDisplay) {
+      PLOGE.printf("Invalid display: %s", szDisplay);
+      mg_http_reply(c, 400, "", "Bad request");
+      return;
+   }
+
+   char szPath[1024];
+   mg_http_get_var(&hm->query, "path", szPath, sizeof(szPath));
+
+   if (*szPath == '\0') {
+      mg_http_reply(c, 400, "", "Bad request");
+      return;
+   }
+
+   std::filesystem::path path = string(szPath);
+   string szCapture = m_szCachePath + path.stem().string() + "-" + szDisplay + ".png";
+
+   // ffmpeg -f x11grab -video_size 1024x768 -i :0.0+1080,0 -vframes 1 "vpxfile-backglass.png"
+
+   string szSize = std::to_string(pDisplay->width) + "x" + std::to_string(pDisplay->height);
+   string szPosition = ":0.0+" + std::to_string(m_tableWidth) + ",0";
+
+   const char* command_line[] = {"/usr/bin/ffmpeg",
+                                 "-y",
+                                 "-f", "x11grab",
+                                 "-video_size", szSize.c_str(),
+                                 "-i", szPosition.c_str(),
+                                 "-vframes", "1",
+                                 szCapture.c_str(),
+                                 NULL};
+   const char* environment[] = {"DISPLAY=:0.0",  NULL};
+
+   struct subprocess_s subprocess;
+   if (!subprocess_create_ex(command_line, 0, environment, &subprocess)) {
+      int process_return;
+      if (!subprocess_join(&subprocess, &process_return)) {
+         PLOGI.printf("process return: %d", process_return);
+         if (!process_return) {
+            mg_http_reply(c, 200, "", "");
+            return;
+         }
+      }
+   }
+
+   mg_http_reply(c, 500, "", "Server error");
+}
+
+void VPXDisplayServer::CaptureES(struct mg_connection *c, void *ev_data)
+{
+   struct mg_http_message *hm = (struct mg_http_message *) ev_data;
+
+   char type[128];
+   mg_http_get_var(&hm->query, "type", type, sizeof(type));
+
+   if (*type == '\0') {
+      mg_http_reply(c, 400, "", "Bad request");
+      return;
+   }
+
+   PLOGI.printf("ES Capture Requested : type=%s", type);
+
+   if (!strcmp(type, "image")) {
+      string szPath = m_szBasePath + "vpxds-tmp-image.png";
+
+      // ffmpeg -f x11grab -video_size 1080x1920 -i :0.0 -vframes 1 "vpxds-tmp-image.png"
+
+      string szSize = std::to_string(m_tableWidth) + "x" + std::to_string(m_tableHeight);
+      const char* command_line[] = {"/usr/bin/ffmpeg",
+                                    "-y",
+                                    "-f", "x11grab",
+                                    "-video_size", szSize.c_str(),
+                                    "-i", ":0.0",
+                                    "-vframes", "1",
+                                    szPath.c_str(),
+                                    NULL};
+
+      
+      const char* environment[] = {"DISPLAY=:0.0",  NULL};
+
+      struct subprocess_s subprocess;
+      if (!subprocess_create_ex(command_line, 0, environment, &subprocess)) {
+         int process_return;
+         if (!subprocess_join(&subprocess, &process_return)) {
+            PLOGI.printf("process returned: %d", process_return);
+            if (!process_return) {
+               struct mg_http_serve_opts opts = {};
+               mg_http_serve_file(c, hm, szPath.c_str(), &opts);
+               return;
+            }
+         }
+      }
+
+      mg_http_reply(c, 500, "", "Server error");
+   }
+   else if (!strcmp(type, "video")) {
+      string szPath = m_szBasePath + "vpxds-tmp-video.mp4";
+
+      // ffmpeg -f x11grab -video_size 1080x1920 -framerate 30 -i :0.0 -c:v libx264 -preset ultrafast -profile:v main -level 3.1 -pix_fmt yuv420p -t 10 "vpxds-tmp-video.mp4"
+
+      string szSize = std::to_string(m_tableWidth) + "x" + std::to_string(m_tableHeight);
+      const char* command_line[] = {"/usr/bin/ffmpeg",
+                                    "-y",
+                                    "-f", "x11grab",
+                                    "-video_size", szSize.c_str(),
+                                    "-framerate", "30",
+                                    "-i", ":0.0",
+                                    "-c:v", "libx264",
+                                    "-preset", "slow",
+                                    "-profile:v", "main",
+                                    "-level", "3.1",
+                                    "-pix_fmt", "yuv420p",
+                                    "-t", "5",
+                                    szPath.c_str(),
+                                    NULL};
+      const char* environment[] = {"DISPLAY=:0.0",  NULL};
+
+      struct subprocess_s subprocess;
+      if (!subprocess_create_ex(command_line, 0, environment, &subprocess)) {
+         int process_return;
+         if (!subprocess_join(&subprocess, &process_return)) {
+            PLOGI.printf("process returned: %d", process_return);
+            if (!process_return) {
+               struct mg_http_serve_opts opts = {};
+               mg_http_serve_file(c, hm, szPath.c_str(), &opts);
+               return;
+            }
+         }
+      }
+
+      mg_http_reply(c, 500, "", "Server error");
+   }
+   else {
+      mg_http_reply(c, 400, "", "Bad request");
+   }
 }
 
 int VPXDisplayServer::OpenDisplay(const string& szName, VPXDisplay* pDisplay)
@@ -234,6 +398,17 @@ void VPXDisplayServer::LoadINI()
       PLOGE << "Missing settings entry";
       return;
    }
+
+   if (ini["Settings"].has("ESURL"))
+      m_szESUrl = ini["Settings"]["ESURL"];
+
+   if (!ini["Settings"].has("TableWidth") ||
+       !ini["Settings"].has("TableHeight")) {
+      PLOGE << "Missing table width or height";
+   }
+
+   m_tableWidth = atoll(ini["Settings"]["TableWidth"].c_str());
+   m_tableHeight = atoll(ini["Settings"]["TableHeight"].c_str());
 
    if (ini["Settings"].has("CachePath")) {
       m_szCachePath = ini["settings"]["CachePath"];
@@ -320,12 +495,21 @@ int VPXDisplayServer::Start()
 
    PLOGI << "Starting server started on port 8111";
 
+   g_pServer = this;
+
+   mg_log_set(MG_LL_NONE);
+
    struct mg_mgr mgr;
    struct mg_connection* conn;
    mg_mgr_init(&mgr);
 
-   mg_http_listen(&mgr, "http://0.0.0.0:8111", &VPXDisplayServer::EventHandler, this);
-  
+   mg_http_listen(&mgr, "http://0.0.0.0:8111", VPXDisplayServer::HandleEvent, NULL);
+
+   if (m_szESUrl.empty())
+      m_szESUrl = "http://127.0.0.1:1234";
+
+   PLOGI << "ES URL: " << m_szESUrl;
+
    bool quit = false;
 
    SDL_Event event;
@@ -338,149 +522,10 @@ int VPXDisplayServer::Start()
       RenderDisplay(m_pBackglassDisplay);
       RenderDisplay(m_pDMDDisplay);
 
-      mg_mgr_poll(&mgr, 200);
+      mg_mgr_poll(&mgr, 1000);
    }
 
    mg_mgr_free(&mgr);
 
    return 0;
-}
-
-SDL_Surface* VPXDisplayServer::GetB2SImage(const string& szVpx)
-{
-   SDL_Surface* pImage = NULL;
-
-   std::filesystem::path path(szVpx);
-   path.replace_extension(string("directb2s"));
-
-   std::ifstream infile(path.string());
-   if (!infile.good())
-      return pImage;
-
-   char* data = nullptr;
-
-   try {
-      tinyxml2::XMLDocument b2sTree;
-      std::stringstream buffer;
-      std::ifstream myFile(path.string());
-      buffer << myFile.rdbuf();
-      myFile.close();
-
-      auto xml = buffer.str();
-      if (b2sTree.Parse(xml.c_str(), xml.size())) {
-         PLOGE.printf("Failed to parse directb2s file: %s", path.string().c_str());
-         return pImage;
-      }
-      
-      if (!b2sTree.FirstChildElement("DirectB2SData")) {
-         PLOGE.printf("Invalid directb2s file: %s", path.string().c_str());
-         return pImage;
-      }
-
-      auto topnode = b2sTree.FirstChildElement("DirectB2SData");
-
-      int backglassGrillHeight = std::max(topnode->FirstChildElement("GrillHeight")->IntAttribute("Value"), 0);
-
-      if (topnode->FirstChildElement("Images")) {
-         if (topnode->FirstChildElement("Images")->FirstChildElement("BackglassOffImage")) {
-            pImage = Base64ToImage(topnode->FirstChildElement("Images")->FirstChildElement("BackglassOffImage")->Attribute("Value"));
-            auto onimagenode = topnode->FirstChildElement("Images")->FirstChildElement("BackglassOnImage");
-            if (onimagenode) {
-               if (pImage)
-                  SDL_FreeSurface(pImage);
-               pImage = Base64ToImage(onimagenode->Attribute("Value"));
-            }
-         }
-         else {
-            if (topnode->FirstChildElement("Images")->FirstChildElement("BackglassImage"))
-               pImage = Base64ToImage(topnode->FirstChildElement("Images")->FirstChildElement("BackglassImage")->Attribute("Value"));
-         }
-
-         if (pImage && backglassGrillHeight > 0) {
-            SDL_Surface* pResizedImage = ResizeImage(pImage, backglassGrillHeight);
-            if (pResizedImage) {
-                SDL_FreeSurface(pImage);
-                pImage = pResizedImage;
-            }
-         }
-      }
-   }
-
-   catch (...) {
-   }
-
-   return pImage;
-}
-
-SDL_Surface* VPXDisplayServer::Base64ToImage(const string& image)
-{
-   vector<unsigned char> imageData = Base64Decode(image);
-   SDL_RWops* rwops = SDL_RWFromConstMem(imageData.data(), imageData.size());
-   SDL_Surface* pImage = IMG_Load_RW(rwops, 0);
-   SDL_RWclose(rwops);
-
-   return pImage;
-}
-
-vector<unsigned char> VPXDisplayServer::Base64Decode(const string &encoded_string)
-{
-   static const string base64_chars =
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-      "abcdefghijklmnopqrstuvwxyz"
-      "0123456789+/";
-
-   string input = encoded_string;
-   input.erase(std::remove(input.begin(), input.end(), '\r'), input.end());
-   input.erase(std::remove(input.begin(), input.end(), '\n'), input.end());
-
-   int in_len = input.size();
-   int i = 0, j = 0, in_ = 0;
-   unsigned char char_array_4[4], char_array_3[3];
-   vector<unsigned char> ret;
-
-   while (in_len-- && (input[in_] != '=') && (std::isalnum(input[in_]) || (input[in_] == '+') || (input[in_] == '/'))) {
-      char_array_4[i++] = input[in_];
-      in_++;
-      if (i == 4) {
-         for (i = 0; i < 4; i++)
-            char_array_4[i] = base64_chars.find(char_array_4[i]);
-
-         char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
-         char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
-         char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
-
-         for (i = 0; i < 3; i++)
-            ret.push_back(char_array_3[i]);
-         i = 0;
-     }
-   }
-
-   if (i) {
-      for (j = i; j < 4; j++)
-         char_array_4[j] = 0;
-
-      for (j = 0; j < 4; j++)
-         char_array_4[j] = base64_chars.find(char_array_4[j]);
-
-      char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
-      char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
-      char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
-
-      for (j = 0; (j < i - 1); j++) ret.push_back(char_array_3[j]);
-   }
-
-   return ret;
-}
-
-SDL_Surface* VPXDisplayServer::ResizeImage(SDL_Surface* pSourceImage, int grillheight)
-{
-   SDL_Surface* pImageWithoutGrill = SDL_CreateRGBSurface(0, pSourceImage->w, pSourceImage->h - grillheight, pSourceImage->format->BitsPerPixel,
-      pSourceImage->format->Rmask, pSourceImage->format->Gmask, pSourceImage->format->Bmask, pSourceImage->format->Amask);
-
-   if (!pImageWithoutGrill)
-      return NULL;
-
-   SDL_BlitSurface(pSourceImage, NULL, pImageWithoutGrill, NULL);
-
-   return pImageWithoutGrill;
 }
