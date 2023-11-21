@@ -39,6 +39,7 @@ private:
    void Reset(struct mg_connection *c, void *ev_data);
    void Capture(struct mg_connection *c, void *ev_data);
    void CaptureES(struct mg_connection *c, void *ev_data);
+   bool ProcessPNG(const std::string& filename);
 
    VPXDisplay* m_pBackglassDisplay;
    VPXDisplay* m_pDMDDisplay;

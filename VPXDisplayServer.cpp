@@ -5,11 +5,14 @@
 #include "inc/mongoose/mongoose.h"
 #include "inc/mINI/ini.h"
 #include "inc/subprocess/subprocess.h"
+#include "inc/lodepng/lodepng.h"
 
 #include <iostream>
 #include <filesystem>
 #include <algorithm>
 #include <X11/Xlib.h>
+
+#include <libimagequant.h>
 
 static VPXDisplayServer* g_pServer = NULL;
 
@@ -234,7 +237,7 @@ void VPXDisplayServer::Capture(struct mg_connection *c, void *ev_data)
       int process_return;
       if (!subprocess_join(&subprocess, &process_return)) {
          PLOGI.printf("process return: %d", process_return);
-         if (!process_return) {
+         if (!process_return && ProcessPNG(szCapture)) {
             mg_http_reply(c, 200, "", "");
             return;
          }
@@ -281,9 +284,9 @@ void VPXDisplayServer::CaptureES(struct mg_connection *c, void *ev_data)
          int process_return;
          if (!subprocess_join(&subprocess, &process_return)) {
             PLOGI.printf("process returned: %d", process_return);
-            if (!process_return) {
+            if (!process_return && ProcessPNG(szPath)) {
                struct mg_http_serve_opts opts = {};
-               mg_http_serve_file(c, hm, szPath.c_str(), &opts);
+               mg_http_serve_file(c, hm, szPath.c_str(), &opts);               
                return;
             }
          }
@@ -452,6 +455,63 @@ void VPXDisplayServer::LoadINI()
          }
       }
    }
+}
+
+bool VPXDisplayServer::ProcessPNG(const std::string& filename)
+{
+   unsigned int width;
+   unsigned int height;
+   unsigned char* pPixels;
+
+   if (lodepng_decode32_file(&pPixels, &width, &height, filename.c_str()))
+      return false;
+
+   liq_attr* pHandle = liq_attr_create();
+   liq_image* pImage = liq_image_create_rgba(pHandle, pPixels, width, height, 0);
+
+   liq_result* pQuantizationResult;
+   if (liq_image_quantize(pImage, pHandle, &pQuantizationResult) != LIQ_OK)
+      return false;
+
+   size_t pixelsSize = width * height;
+   unsigned char* pPixels8 = (unsigned char *)malloc(pixelsSize);
+   liq_set_dithering_level(pQuantizationResult, 1.0);
+
+   liq_write_remapped_image(pQuantizationResult, pImage, pPixels8, pixelsSize);
+   const liq_palette* pPalette = liq_get_palette(pQuantizationResult);
+
+   LodePNGState state;
+   lodepng_state_init(&state);
+   state.info_raw.colortype = LCT_PALETTE;
+   state.info_raw.bitdepth = 8;
+   state.info_png.color.colortype = LCT_PALETTE;
+   state.info_png.color.bitdepth = 8;
+
+   for (int i = 0; i < pPalette->count; i++) {
+      lodepng_palette_add(&state.info_png.color, pPalette->entries[i].r, pPalette->entries[i].g, pPalette->entries[i].b, pPalette->entries[i].a);
+      lodepng_palette_add(&state.info_raw, pPalette->entries[i].r, pPalette->entries[i].g, pPalette->entries[i].b, pPalette->entries[i].a);
+   }
+
+   unsigned char* pOutput;
+   size_t outputSize;
+   if (lodepng_encode(&pOutput, &outputSize, pPixels8, width, height, &state))
+      return false;
+
+   FILE *fp = fopen(filename.c_str(), "wb");
+   if (!fp)
+      return false;
+
+   fwrite(pOutput, 1, outputSize, fp);
+   fclose(fp);
+
+   liq_result_destroy(pQuantizationResult);
+   liq_image_destroy(pImage);
+   liq_attr_destroy(pHandle);
+
+   free(pPixels8);
+   lodepng_state_cleanup(&state);
+
+   return true;
 }
 
 int VPXDisplayServer::Start()
